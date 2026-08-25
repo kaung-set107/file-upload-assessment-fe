@@ -41,7 +41,7 @@ npm install
 
 ### Environment
 
-Set the backend URL in `.env.local`:
+Set the backend URL in `.env`:
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:5000/api

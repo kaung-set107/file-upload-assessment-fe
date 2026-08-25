@@ -505,7 +505,6 @@ export default function UploadPage() {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(56,189,248,0.18),_transparent_24%),linear-gradient(180deg,_rgba(248,250,252,0.92),_rgba(241,245,249,0.72))] text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-4 md:px-6 lg:flex-row lg:px-8">
         <DashboardSidebar userProfile={userProfile} />
-
         <main className="min-w-0 w-full space-y-6">
           <Card className="border-border/60 bg-background/80 shadow-[0_25px_80px_-35px_rgba(15,23,42,0.35)] backdrop-blur">
             <CardHeader className="border-b border-border/60 pb-5">
