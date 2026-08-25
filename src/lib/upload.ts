@@ -2,7 +2,7 @@ import { apiFetch } from "@/lib/api";
 
 import type { FileUploadSession } from "@/types/file";
 
-export const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024;
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export function formatFileSize(bytes: number) {
@@ -29,6 +29,16 @@ export function getUploadShareUrl(token: string) {
   const baseUrl = API_URL.replace(/\/$/, "");
 
   return `${baseUrl}/uploads/share/${encodeURIComponent(token)}`;
+}
+
+export function getUploadDownloadUrl(id: string) {
+  if (!API_URL) {
+    throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  }
+
+  const baseUrl = API_URL.replace(/\/$/, "");
+
+  return `${baseUrl}/uploads/${encodeURIComponent(id)}/download`;
 }
 
 export async function requestPresignedUpload(input: {

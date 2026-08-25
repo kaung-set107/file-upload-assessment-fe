@@ -1,5 +1,9 @@
 export type UploadStatus = "public" | "private";
 
+export type URL = {
+  url: string;
+};
+
 export type FileItem = {
   id: string;
   user?: string;
@@ -15,6 +19,7 @@ export type FileItem = {
   createdAt?: string | null;
   updatedAt?: string | null;
   url?: string | null;
+  s3Key: string;
 };
 
 export type FileListResponse =
@@ -31,6 +36,8 @@ export type FileUploadSession = {
   method?: "PUT" | "POST";
   fields?: Record<string, string>;
   key?: string | null;
+  fileKey?: string | null;
+  s3Key?: string | null;
   file?: string | null;
   shareLink?: string | null;
   shareToken?: string | null;

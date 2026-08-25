@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FutureWave Files",
+  title: "Files Storage System",
   description: "Dashboard for managing secure file uploads and storage.",
 };
 

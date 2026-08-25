@@ -153,17 +153,11 @@ export function FileUploadDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl p-6">
         <DialogHeader>
           <DialogTitle>
             {mode === "create" ? "Upload file" : "Update file"}
           </DialogTitle>
-
-          <DialogDescription>
-            {mode === "create"
-              ? "Pick a file, add a description, choose visibility, and we will upload it directly to S3 using a presigned URL."
-              : "Update the description, visibility, or replace the file without leaving the dashboard."}
-          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -198,6 +192,7 @@ export function FileUploadDialog({
                     <Button
                       type="button"
                       variant="outline"
+                      disabled={submitting}
                       onClick={() => inputRef.current?.click()}
                     >
                       <Upload className="mr-2 size-4" />
@@ -209,6 +204,7 @@ export function FileUploadDialog({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
+                        disabled={submitting}
                         onClick={clearSelectedFile}
                       >
                         <X className="size-4" />
@@ -244,28 +240,21 @@ export function FileUploadDialog({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="status">Visibility</Label>
+          <div className="space-y-2">
+            <Label htmlFor="status">Visibility</Label>
 
-              <select
-                id="status"
-                value={status}
-                onChange={(event) => setStatus(event.target.value as UploadStatus)}
-                className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-              >
-                <option value="private">Private</option>
-                <option value="public">Public</option>
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="originalName">Original name</Label>
-
-              <div className="flex h-8 items-center rounded-lg border border-input bg-muted/30 px-2.5 text-sm text-muted-foreground">
-                {selectedFile?.name ?? file?.originalName ?? file?.file ?? "Auto from file"}
-              </div>
-            </div>
+            <select
+              id="status"
+              value={status}
+              disabled={submitting}
+              onChange={(event) =>
+                setStatus(event.target.value as UploadStatus)
+              }
+              className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            >
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
           </div>
 
           <div className="space-y-2">
@@ -274,14 +263,11 @@ export function FileUploadDialog({
             <Textarea
               id="description"
               rows={4}
+              disabled={submitting}
               placeholder="Add a short note about what this file is for"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
             />
-
-            <p className="text-xs text-muted-foreground">
-              Keep it short and useful for future searches or teammates.
-            </p>
           </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

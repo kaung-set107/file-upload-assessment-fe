@@ -23,7 +23,8 @@ function getMessage(data: unknown) {
 function buildHeaders(options: ApiFetchOptions) {
   const headers = new Headers(options.headers);
   const body = options.body;
-  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const isFormData =
+    typeof FormData !== "undefined" && body instanceof FormData;
   const isBlob = typeof Blob !== "undefined" && body instanceof Blob;
 
   if (body && !isFormData && !isBlob && !headers.has("Content-Type")) {
@@ -33,7 +34,10 @@ function buildHeaders(options: ApiFetchOptions) {
   return headers;
 }
 
-export async function apiFetch(endpoint: string, options: ApiFetchOptions = {}) {
+export async function apiFetch<T>(
+  endpoint: string,
+  options: ApiFetchOptions = {},
+): Promise<T> {
   if (!API_URL) {
     throw new Error("NEXT_PUBLIC_API_URL is not configured");
   }
@@ -75,5 +79,5 @@ export async function apiFetch(endpoint: string, options: ApiFetchOptions = {}) 
     );
   }
 
-  return data;
+  return data as T;
 }

@@ -12,6 +12,7 @@ import { loginSchema, type LoginFormData } from "@/schemas/auth.schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoginResponse } from "@/types/auth";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -26,14 +27,16 @@ export default function LoginForm() {
 
   const onSubmit = async (data: LoginFormData) => {
     try {
-      await apiFetch("/auth/login", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+    const response = await apiFetch<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
 
-      //   toast.success("Login successful");
-
-      router.push("/dashboard");
+    if (response.user.role === "admin") {
+      router.push("/dashboard/users");
+    } else {
+      router.push("/dashboard/uploads");
+    }
     } catch (error) {}
   };
 

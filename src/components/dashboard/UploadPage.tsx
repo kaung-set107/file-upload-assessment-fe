@@ -1,19 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  CloudUpload,
-  HardDriveUpload,
-  LayoutDashboard,
-  LogOut,
-  RefreshCcw,
-  ShieldCheck,
-} from "lucide-react";
+import { CloudUpload, LayoutDashboard, LogOut } from "lucide-react";
 import { toast } from "sonner";
-
+import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
+import type { UserProfile } from "@/types/user";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -22,12 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
-import {
-  MAX_FILE_SIZE_BYTES,
-  formatFileSize,
-  requestPresignedUpload,
-  uploadToPresignedUrl,
-} from "@/lib/upload";
+import { requestPresignedUpload, uploadToPresignedUrl } from "@/lib/upload";
 import type { FileItem, FileUploadSession, UploadStatus } from "@/types/file";
 import { FileTable } from "@/components/files/FileTable";
 import { FileUploadDialog } from "@/components/files/FileUploadDialog";
@@ -37,27 +25,6 @@ type UploadPayload = {
   description: string;
   status: UploadStatus;
 };
-
-type UserProfile = {
-  name: string;
-  email: string;
-  role: string;
-};
-
-const userProfile: UserProfile = {
-  name: "User",
-  email: "user@gmail.com",
-  role: "Workspace owner",
-};
-
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function unwrapResponse<T>(response: unknown): T | null {
   if (!response || typeof response !== "object") return null;
@@ -73,6 +40,19 @@ function getBaseName(value?: string | null) {
   if (!value) return "";
 
   return value.split("/").pop()?.split("\\").pop() ?? value;
+}
+
+function resolveUploadS3Key(
+  upload: Partial<FileUploadSession> & Record<string, unknown>,
+  existingUpload?: FileItem | null,
+) {
+  return (
+    (typeof upload.s3Key === "string" && upload.s3Key) ||
+    (typeof upload.fileKey === "string" && upload.fileKey) ||
+    (typeof upload.key === "string" && upload.key) ||
+    existingUpload?.s3Key ||
+    ""
+  );
 }
 
 function normalizeUploadRecord(
@@ -106,6 +86,7 @@ function normalizeUploadRecord(
     file: String(
       upload.file ?? upload.path ?? upload.url ?? upload.shareLink ?? "",
     ),
+    s3Key: resolveUploadS3Key(upload),
     description:
       typeof upload.description === "string" ? upload.description : undefined,
     date:
@@ -193,6 +174,7 @@ function extractUploadSession(response: unknown): FileUploadSession | null {
         ? (session.fields as Record<string, string>)
         : undefined,
     key: typeof session.key === "string" ? session.key : undefined,
+    s3Key: resolveUploadS3Key(session),
     file: typeof session.file === "string" ? session.file : undefined,
     shareLink:
       typeof session.shareLink === "string" ? session.shareLink : undefined,
@@ -208,85 +190,39 @@ function extractUploadSession(response: unknown): FileUploadSession | null {
   };
 }
 
-function FileMetric({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-}) {
-  return (
-    <Card className="border-border/60 bg-background/85 shadow-sm">
-      <CardContent className="space-y-2 p-4">
-        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="font-heading text-2xl font-semibold">{value}</p>
-        <p className="text-sm text-muted-foreground">{hint}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-export default function DashboardPage() {
+export default function UploadPage() {
   const router = useRouter();
 
   const [uploads, setUploads] = useState<FileItem[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingUpload, setEditingUpload] = useState<FileItem | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
-
-  const totalStorage = useMemo(
-    () => uploads.reduce((sum, upload) => sum + (upload.size ?? 0), 0),
-    [uploads],
-  );
-
-  const publicUploads = useMemo(
-    () => uploads.filter((upload) => upload.status === "public").length,
-    [uploads],
-  );
-
-  const privateUploads = useMemo(
-    () => uploads.filter((upload) => upload.status === "private").length,
-    [uploads],
-  );
-
-  const newestUpload = useMemo(
-    () =>
-      uploads.slice().sort((a, b) => {
-        const right =
-          new Date(b.date ?? b.createdAt ?? Date.now()).getTime() || 0;
-        const left =
-          new Date(a.date ?? a.createdAt ?? Date.now()).getTime() || 0;
-        return right - left;
-      })[0] ?? null,
-    [uploads],
-  );
 
   const loadUploads = async () => {
     try {
       setLoading(true);
-      const response = await apiFetch("/uploads", { skipToast: true });
-      setUploads(normalizeUploadList(response));
+      const [profileResponse, uploadsResponse] = await Promise.all([
+        apiFetch<UserProfile>("/users/profile", {
+          method: "GET",
+          skipToast: true,
+        }),
+
+        apiFetch("/uploads", {
+          method: "GET",
+          skipToast: true,
+        }),
+      ]);
+
+      setUserProfile(profileResponse);
+      setUploads(normalizeUploadList(uploadsResponse));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to load uploads.",
       );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleRefresh = async () => {
-    try {
-      setRefreshing(true);
-      await loadUploads();
-    } finally {
-      setRefreshing(false);
     }
   };
 
@@ -307,9 +243,16 @@ export default function DashboardPage() {
     status: UploadStatus;
     existingUpload?: FileItem | null;
   }) => {
+    const s3Key = resolveUploadS3Key(session, existingUpload);
+
+    if (!s3Key) {
+      throw new Error("Upload key was not returned by the server.");
+    }
+
     const fallbackRecord = normalizeUploadRecord({
       ...(existingUpload ?? {}),
       file: session.file ?? existingUpload?.file ?? file.name,
+      s3Key,
       description,
       status,
       shareLink: session.shareLink ?? existingUpload?.shareLink ?? "",
@@ -326,6 +269,7 @@ export default function DashboardPage() {
 
     const body = {
       file: session.file ?? existingUpload?.file ?? file.name,
+      s3Key,
       description,
       status,
       date: existingUpload?.date ?? new Date().toISOString(),
@@ -410,6 +354,7 @@ export default function DashboardPage() {
       setUploads((current) => [savedUpload, ...current]);
       setCreateOpen(false);
       toast.success("Upload created successfully");
+      await loadUploads();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to upload file.",
@@ -467,6 +412,7 @@ export default function DashboardPage() {
             originalName: editingUpload.originalName,
             mimeType: editingUpload.mimeType,
             size: editingUpload.size,
+            s3Key: editingUpload.s3Key,
             date: editingUpload.date,
           }),
           skipToast: true,
@@ -490,6 +436,7 @@ export default function DashboardPage() {
       );
       setEditingUpload(null);
       toast.success("Upload updated successfully");
+      await loadUploads();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to update upload.",
@@ -517,6 +464,32 @@ export default function DashboardPage() {
     }
   };
 
+  const handleDownloadAndShare = async (
+    file: FileItem,
+    type: "download" | "share",
+  ) => {
+    try {
+      if (type === "share") {
+        const shareUrl = `${window.location.origin}/files/${file.id}`;
+
+        await navigator.clipboard.writeText(shareUrl);
+
+        toast.success("Private link copied");
+        return;
+      }
+
+      window.open(
+        `${window.location.origin}/files/${file.id}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to access upload.",
+      );
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await apiFetch("/auth/logout", { method: "POST", skipToast: true });
@@ -531,66 +504,20 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(56,189,248,0.18),_transparent_24%),linear-gradient(180deg,_rgba(248,250,252,0.92),_rgba(241,245,249,0.72))] text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-4 md:px-6 lg:flex-row lg:px-8">
-        <aside className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:w-80">
-          <Card className="flex h-full flex-col border-border/60 bg-background/85 shadow-[0_25px_80px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
-            <CardHeader className="space-y-4 border-b border-border/60 pb-5">
-              <div className="flex items-center gap-3">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-950 via-slate-700 to-slate-500 text-sm font-semibold text-white shadow-lg">
-                  {getInitials(userProfile.name)}
-                </div>
+        <DashboardSidebar userProfile={userProfile} />
 
-                <div className="min-w-0">
-                  <CardTitle className="truncate text-lg">
-                    {userProfile.name}
-                  </CardTitle>
-                  <CardDescription className="truncate">
-                    {userProfile.email}
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-
-            <CardContent className="flex flex-1 flex-col gap-4 p-5">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-2xl border border-border/60 bg-muted/40 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                    Active view
-                  </p>
-                  <div className="mt-3 flex items-center gap-2 font-medium">
-                    <LayoutDashboard className="size-4" />
-                    Workspace dashboard
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-auto space-y-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleLogout}
-                >
-                  <LogOut className="mr-2 size-4" />
-                  Logout
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
-
-        <main className="min-w-0 flex-1 space-y-6 py-0 lg:py-0">
+        <main className="min-w-0 w-full space-y-6">
           <Card className="border-border/60 bg-background/80 shadow-[0_25px_80px_-35px_rgba(15,23,42,0.35)] backdrop-blur">
             <CardHeader className="border-b border-border/60 pb-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Uploads</CardTitle>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button type="button" onClick={() => setCreateOpen(true)}>
-                    <CloudUpload className="mr-2 size-4" />
-                    Upload file
-                  </Button>
-                </div>
+
+                <Button type="button" onClick={() => setCreateOpen(true)}>
+                  <CloudUpload className="mr-2 size-4" />
+                  Upload file
+                </Button>
               </div>
             </CardHeader>
 
@@ -599,6 +526,8 @@ export default function DashboardPage() {
                 files={uploads}
                 loading={loading}
                 onDelete={handleDelete}
+                onDownload={(file) => handleDownloadAndShare(file, "download")}
+                onShare={(file) => handleDownloadAndShare(file, "share")}
                 onEdit={(upload) => setEditingUpload(upload)}
               />
             </CardContent>

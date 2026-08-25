@@ -34,8 +34,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatFileSize, getUploadShareUrl } from "@/lib/upload";
+import {
+  formatFileSize,
+  getUploadDownloadUrl,
+  getUploadShareUrl,
+} from "@/lib/upload";
 import type { FileItem } from "@/types/file";
+import { apiFetch } from "@/lib/api";
 
 type FileTableProps = {
   files: FileItem[];
@@ -43,6 +48,7 @@ type FileTableProps = {
   onDelete: (id: string) => Promise<void>;
   onEdit: (file: FileItem) => void;
   onDownload?: (file: FileItem) => void;
+  onShare?: (file: FileItem) => void;
 };
 
 function getFileType(mimeType?: string | null) {
@@ -81,6 +87,12 @@ function getStatusBadge(status: FileItem["status"]) {
 }
 
 function resolveDownloadTarget(file: FileItem) {
+  try {
+    return getUploadDownloadUrl(file.id);
+  } catch {
+    // Fall back to legacy links if the API base URL is unavailable.
+  }
+
   if (file.shareToken) {
     try {
       return getUploadShareUrl(file.shareToken);
@@ -95,6 +107,7 @@ function resolveDownloadTarget(file: FileItem) {
 export function FileTable({
   files,
   loading = false,
+  onShare,
   onDelete,
   onEdit,
   onDownload,
@@ -121,19 +134,6 @@ export function FileTable({
     }
   };
 
-  const handleCopyShareLink = async (file: FileItem) => {
-    const shareTarget = resolveDownloadTarget(file);
-
-    if (!shareTarget) return;
-
-    try {
-      await navigator.clipboard.writeText(shareTarget);
-      toast.success("Share link copied");
-    } catch {
-      toast.error("Unable to copy the share link.");
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex min-h-64 items-center justify-center rounded-2xl border border-border/60 bg-background/70">
@@ -152,7 +152,7 @@ export function FileTable({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>File</TableHead>
+                <TableHead>File Name</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Type</TableHead>
@@ -175,9 +175,7 @@ export function FileTable({
                         <p className="truncate font-medium">
                           {file.originalName ?? file.file}
                         </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {file.file}
-                        </p>
+         
                       </div>
                     </div>
                   </TableCell>
@@ -191,15 +189,17 @@ export function FileTable({
                   <TableCell>{getStatusBadge(file.status)}</TableCell>
 
                   <TableCell>
-                    <Badge variant="secondary">{getFileType(file.mimeType)}</Badge>
+                    <Badge variant="secondary">
+                      {getFileType(file.mimeType)}
+                    </Badge>
                   </TableCell>
 
-                  <TableCell>
-                    {formatFileSize(file.size ?? 0)}
-                  </TableCell>
+                  <TableCell>{formatFileSize(file.size ?? 0)}</TableCell>
 
                   <TableCell>
-                    {new Date(file.date ?? file.createdAt ?? new Date().toISOString()).toLocaleDateString()}
+                    {new Date(
+                      file.date ?? file.createdAt ?? new Date().toISOString(),
+                    ).toLocaleDateString()}
                   </TableCell>
 
                   <TableCell>
@@ -209,16 +209,10 @@ export function FileTable({
                         variant="ghost"
                         disabled={!resolveDownloadTarget(file)}
                         onClick={() => {
-                          const downloadTarget = resolveDownloadTarget(file);
-
                           if (onDownload) {
                             onDownload(file);
                             return;
                           }
-
-                          if (!downloadTarget) return;
-
-                          window.open(downloadTarget, "_blank", "noopener,noreferrer");
                         }}
                       >
                         <Download className="size-4" />
@@ -229,7 +223,12 @@ export function FileTable({
                         size="icon-sm"
                         variant="ghost"
                         disabled={!resolveDownloadTarget(file)}
-                        onClick={() => void handleCopyShareLink(file)}
+                        onClick={() => {
+                          if (onShare) {
+                            onShare(file);
+                            return;
+                          }
+                        }}
                       >
                         <Copy className="size-4" />
                         <span className="sr-only">Copy share link</span>
@@ -298,7 +297,9 @@ export function FileTable({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-              {deleting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              {deleting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : null}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
