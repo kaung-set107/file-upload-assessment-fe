@@ -9,6 +9,7 @@ import {
   ImageIcon,
   Loader2,
   Lock,
+  ViewIcon,
 } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
@@ -43,6 +44,9 @@ export default function SharedFilePage() {
   const params = useParams();
   const id = params.id as string;
 
+  const [progress, setProgress] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
+
   const [file, setFile] = useState<FileData | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -64,7 +68,6 @@ export default function SharedFilePage() {
           credentials: "include",
           skipToast: true,
         });
-        console.log("FILE DATA:", data);
         setFile(data.upload);
       } catch (error) {
         const message =
@@ -82,12 +85,68 @@ export default function SharedFilePage() {
     loadFile();
   }, [id]);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    setProgress(0);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/uploads/${id}/download`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!response.ok) throw new Error("Download failed");
+      if (!response.body) throw new Error("ReadableStream not supported");
+
+      // Get total file size from server headers
+      const contentLength = response.headers.get("Content-Length");
+      const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+      const reader = response.body.getReader();
+      const chunks = [];
+      let receivedBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunks.push(value);
+        receivedBytes += value.length;
+
+        // Update progress percentage if Content-Length is available
+        if (totalBytes) {
+          const percent = Math.round((receivedBytes / totalBytes) * 100);
+          setProgress(percent);
+        }
+      }
+
+      const blob = new Blob(chunks, { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `file-${id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download failed:", error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleView = () => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
     window.open(
       `${apiUrl}/uploads/${id}/download`,
+
       "_blank",
+
       "noopener,noreferrer",
     );
   };
@@ -114,7 +173,6 @@ export default function SharedFilePage() {
 
             <AlertDialogDescription>{error}</AlertDialogDescription>
           </AlertDialogHeader>
-
         </AlertDialogContent>
       </AlertDialog>
 
@@ -155,11 +213,23 @@ export default function SharedFilePage() {
                       </div>
                     </div>
                   </div>
-
-                  <Button onClick={handleDownload} size="sm">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={handleView} size="sm">
+                      <ViewIcon className="mr-2 h-4 w-4" />
+                      View
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleDownload}
+                      disabled={isDownloading}
+                      size="sm"
+                    >
+                      <Download
+                        className={`mr-2 h-4 w-4 ${isDownloading && "animate-bounce"}`}
+                      />
+                      {isDownloading ? `Downloading ${progress}%` : "Download"}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
