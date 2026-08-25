@@ -1,37 +1,192 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# File Upload Assessment Frontend
 
-## Getting Started
+This project is a Next.js dashboard for managing users and file uploads with a backend API and presigned S3 uploads.
 
-First, run the development server:
+## Overview
+
+The app has three main areas:
+
+- Authentication pages for login, register
+- Dashboard pages for uploads and users
+- A file detail page for shared or direct file access
+
+The frontend talks to the backend through `NEXT_PUBLIC_API_URL`.
+
+## Tech Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Sonner for toast messages
+- Lucide React icons
+- Base UI components
+
+## Project Routes
+
+- `/` landing page
+- `/login`
+- `/register`
+- `/dashboard/uploads`
+- `/dashboard/users`
+- `/files/[id]`
+
+## Setup
+
+### Install
+
+```bash
+npm install
+```
+
+### Environment
+
+Set the backend URL in `.env.local`:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:5000/api
+```
+
+### Run
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Build
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Lint
 
-## Learn More
+```bash
+npm run lint
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Core Process
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 1. Authentication
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Users log in or register through the auth pages. After login, the dashboard uses the authenticated session for API requests.
 
-## Deploy on Vercel
+### 2. Dashboard Shell
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`DashboardSidebar` is the shared left panel on dashboard pages. It shows:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# file-upload-assessment-fe
+- Current user name, email, and role
+- Navigation context for uploads or users
+- Logout action
+
+### 3. Upload Workflow
+
+The upload flow is split into two steps:
+
+1. Request a presigned upload URL from the backend.
+2. Upload the file directly to S3 using that presigned URL.
+3. Save the upload metadata back to the API.
+
+#### Upload API flow
+
+- `POST /uploads/presign`
+- Direct S3 upload using the returned `uploadUrl`
+- `POST /uploads` for a new record
+- `PATCH /uploads/:id` for updates
+- `DELETE /uploads/:id` for removal
+- `GET /uploads` to load the list
+
+#### Upload data captured
+
+- File name
+- Description
+- Visibility status
+- File size
+- MIME type
+- S3 key
+- Share link or public download link
+
+#### Upload use cases
+
+- Add a new file to the workspace
+- Replace an existing file
+- Update description or visibility
+- Download a file from the table
+- Copy the download link from the table
+- Delete a file from the dashboard
+
+### 4. File Access
+
+Upload items use a download route based on the record ID:
+
+- `/uploads/:id/download`
+
+This route is used by the upload table download action and the copied link.
+
+### 5. User Management Workflow
+
+The users page loads:
+
+- Current profile from `GET /users/profile`
+- All users from `GET /users`
+
+It supports:
+
+- Searching users by name, email, or role
+- Viewing a table of users
+- Toggling user status between active and inactive
+
+#### User status API
+
+- `PATCH /users/:id/status`
+
+The action column contains the status badge and the on/off checkbox for each user.
+
+#### User use cases
+
+- Review all registered users
+- Find a user quickly with search
+- Mark a user active
+- Mark a user inactive
+- See how many admin and regular users exist
+
+## File Handling Notes
+
+- Large files are checked in the upload dialog before sending anything to the backend.
+- The upload record stores `s3Key` so the backend can reference the uploaded object reliably.
+- The frontend normalizes API responses that may return either a raw object or a `data` wrapper.
+
+## API Summary
+
+### Uploads by user role
+
+- `GET /uploads`
+- `POST /uploads/presign`
+- `POST /uploads`
+- `PATCH /uploads/:id`
+- `DELETE /uploads/:id`
+- `GET /uploads/:id/download`
+
+### Users Management by admin role
+
+- `GET /users`
+- `GET /users/profile`
+- `PATCH /users/:id/status`
+
+### Auth
+
+- `POST /auth/logout`
+
+## Development Notes
+
+- The app uses client components for dashboard interactivity.
+- Toast messages are used for success and error feedback.
+- The dashboard refreshes data after create, update, and delete actions so the UI stays in sync with the backend.
+
+## Common Scenarios
+
+- A user uploads a file, adds a description, and marks it public.
+- A user updates an existing upload without changing the file.
+- An admin searches the user list and flips a user between active and inactive.
+- A user copies a download URL to share with someone else.
+
