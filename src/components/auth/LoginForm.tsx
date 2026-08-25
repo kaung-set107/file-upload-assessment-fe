@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { toast } from "sonner";
-
+import Cookies from "js-cookie";
 import { apiFetch } from "@/lib/api";
 import { loginSchema, type LoginFormData } from "@/schemas/auth.schema";
 
@@ -27,16 +26,22 @@ export default function LoginForm() {
 
   const onSubmit = async (data: LoginFormData) => {
     try {
-    const response = await apiFetch<LoginResponse>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-
-    if (response.user.role === "admin") {
-      router.push("/dashboard/users");
-    } else {
-      router.push("/dashboard/uploads");
-    }
+      const response = await apiFetch<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      if (response.token) {
+        Cookies.set("accessToken", response.token, {
+          expires: 7,
+          secure: true,
+          sameSite: "strict",
+        });
+      }
+      if (response.user.role === "admin") {
+        router.push("/dashboard/users");
+      } else {
+        router.push("/dashboard/uploads");
+      }
     } catch (error) {}
   };
 

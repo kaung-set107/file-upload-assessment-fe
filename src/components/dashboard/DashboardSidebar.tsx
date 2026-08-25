@@ -3,7 +3,7 @@
 import { LayoutDashboard, LogOut, Users } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { toast } from "sonner";
-
+import Cookies from "js-cookie";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,6 +55,7 @@ export function DashboardSidebar({ userProfile }: DashboardSidebarProps) {
     } catch {
       // Still redirect if logout API fails
     } finally {
+      Cookies.remove("accessToken", { path: "/" });
       toast.success("Logout successful");
       router.replace("/login");
     }
