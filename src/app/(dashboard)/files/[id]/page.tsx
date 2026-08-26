@@ -121,12 +121,13 @@ export default function SharedFilePage() {
         }
       }
 
-      const blob = new Blob(chunks, { type: "application/pdf" });
+      const blob = new Blob(chunks, { type: file?.mimeType });
+
       const url = window.URL.createObjectURL(blob);
 
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `file-${id}.pdf`);
+      link.setAttribute("download", `file-${id}`);
       document.body.appendChild(link);
       link.click();
 
