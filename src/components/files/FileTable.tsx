@@ -40,7 +40,6 @@ import {
   getUploadShareUrl,
 } from "@/lib/upload";
 import type { FileItem } from "@/types/file";
-import { apiFetch } from "@/lib/api";
 
 type FileTableProps = {
   files: FileItem[];
@@ -104,6 +103,10 @@ function resolveDownloadTarget(file: FileItem) {
   return file.shareLink ?? file.url ?? file.file;
 }
 
+function formatDate(date?: string | null) {
+  return new Date(date ?? new Date().toISOString()).toLocaleDateString();
+}
+
 export function FileTable({
   files,
   loading = false,
@@ -147,7 +150,116 @@ export function FileTable({
 
   return (
     <>
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-background/80 shadow-sm">
+      <div className="space-y-4 md:hidden">
+        {files.map((file) => (
+          <div
+            key={file.id}
+            className="rounded-3xl border border-border/60 bg-background/85 p-4 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex size-11 items-center justify-center rounded-2xl bg-muted text-muted-foreground ring-1 ring-foreground/10">
+                {getFileIcon(file.mimeType)}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {file.originalName ?? file.file}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                      {file.description?.trim() || "No description added yet."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {getStatusBadge(file.status)}
+                  <Badge variant="secondary">{getFileType(file.mimeType)}</Badge>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Size</p>
+                    <p className="font-medium">{formatFileSize(file.size ?? 0)}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-muted-foreground">Date</p>
+                    <p className="font-medium">
+                      {formatDate(file.date ?? file.createdAt)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-4 gap-2">
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    disabled={!resolveDownloadTarget(file)}
+                    onClick={() => {
+                      if (onDownload) {
+                        onDownload(file);
+                      }
+                    }}
+                  >
+                    <Download className="size-4" />
+                    <span className="sr-only">Download upload</span>
+                  </Button>
+
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    disabled={!resolveDownloadTarget(file)}
+                    onClick={() => {
+                      if (onShare) {
+                        onShare(file);
+                      }
+                    }}
+                  >
+                    <Copy className="size-4" />
+                    <span className="sr-only">Copy share link</span>
+                  </Button>
+
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    onClick={() => onEdit(file)}
+                  >
+                    <Edit3 className="size-4" />
+                    <span className="sr-only">Edit upload</span>
+                  </Button>
+
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    onClick={() => setDeleteId(file.id)}
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                    <span className="sr-only">Delete upload</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {files.length === 0 && (
+          <div className="rounded-3xl border border-border/60 bg-background/80 px-4 py-12 text-center shadow-sm">
+            <div className="flex flex-col items-center gap-3 text-muted-foreground">
+              <File className="size-8" />
+              <div>
+                <p className="font-medium text-foreground">No uploads yet</p>
+                <p className="text-sm">
+                  Add a file to start building the upload workspace.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-2xl border border-border/60 bg-background/80 shadow-sm md:block">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -175,7 +287,6 @@ export function FileTable({
                         <p className="truncate font-medium">
                           {file.originalName ?? file.file}
                         </p>
-         
                       </div>
                     </div>
                   </TableCell>
@@ -197,9 +308,7 @@ export function FileTable({
                   <TableCell>{formatFileSize(file.size ?? 0)}</TableCell>
 
                   <TableCell>
-                    {new Date(
-                      file.date ?? file.createdAt ?? new Date().toISOString(),
-                    ).toLocaleDateString()}
+                    {formatDate(file.date ?? file.createdAt)}
                   </TableCell>
 
                   <TableCell>

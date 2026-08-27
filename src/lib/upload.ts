@@ -66,23 +66,48 @@ export async function uploadToPresignedUrl(
   uploadUrl: string,
   file: File,
   fields?: Record<string, string>,
-) {
+  onProgress?: (progress: number) => void,
+): Promise<void> {
   const isFormUpload = Boolean(fields && Object.keys(fields).length > 0);
 
-  const response = await fetch(uploadUrl, {
-    method: isFormUpload ? "POST" : "PUT",
-    body: isFormUpload ? buildMultipartFormData(fields!, file) : file,
-    headers:
-      !isFormUpload && file.type
-        ? {
-            "Content-Type": file.type,
-          }
-        : undefined,
-  });
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
-  if (!response.ok) {
-    throw new Error("Unable to upload the selected file");
-  }
+    xhr.open(isFormUpload ? "POST" : "PUT", uploadUrl);
+
+    if (!isFormUpload && file.type) {
+      xhr.setRequestHeader("Content-Type", file.type);
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+
+      const progress = Math.round((event.loaded / event.total) * 100);
+
+      onProgress?.(progress);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100);
+        resolve();
+      } else {
+        reject(new Error("Unable to upload the selected file"));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Unable to upload the selected file"));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error("Upload was cancelled"));
+    };
+
+    const body = isFormUpload ? buildMultipartFormData(fields!, file) : file;
+
+    xhr.send(body);
+  });
 }
 
 function buildMultipartFormData(fields: Record<string, string>, file: File) {
@@ -96,3 +121,5 @@ function buildMultipartFormData(fields: Record<string, string>, file: File) {
 
   return formData;
 }
+
+
