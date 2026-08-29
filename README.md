@@ -87,14 +87,23 @@ The upload flow is split into two steps:
 2. Upload the file directly to S3 using that presigned URL.
 3. Save the upload metadata back to the API.
 
+The backend also supports batch uploads:
+
+1. Request presigned upload URLs for multiple files at once.
+2. Upload each file directly to S3 using its own presigned URL.
+3. Save all completed upload records back to the API.
+
 #### Upload API flow
 
 - `POST /uploads/presign`
+- `POST /uploads/presign-batch`
 - Direct S3 upload using the returned `uploadUrl`
 - `POST /uploads` for a new record
+- `POST /uploads/batch` for multiple records
 - `PATCH /uploads/:id` for updates
 - `DELETE /uploads/:id` for removal
 - `GET /uploads` to load the list
+- `GET /uploads/quota` to load remaining storage
 
 #### Upload data captured
 
@@ -153,6 +162,7 @@ The action column contains the status badge and the on/off checkbox for each use
 ## File Handling Notes
 
 - Large files are checked in the upload dialog before sending anything to the backend.
+- The upload dialog uses the backend-aligned 5 GB quota for file checks.
 - The upload record stores `s3Key` so the backend can reference the uploaded object reliably.
 - The frontend normalizes API responses that may return either a raw object or a `data` wrapper.
 
@@ -162,10 +172,13 @@ The action column contains the status badge and the on/off checkbox for each use
 
 - `GET /uploads`
 - `POST /uploads/presign`
+- `POST /uploads/presign-batch`
 - `POST /uploads`
+- `POST /uploads/batch`
 - `PATCH /uploads/:id`
 - `DELETE /uploads/:id`
 - `GET /uploads/:id/download`
+- `GET /uploads/quota`
 
 ### Users Management by admin role
 
@@ -189,4 +202,3 @@ The action column contains the status badge and the on/off checkbox for each use
 - A user updates an existing upload without changing the file.
 - An admin searches the user list and flips a user between active and inactive.
 - A user copies a download URL to share with someone else.
-

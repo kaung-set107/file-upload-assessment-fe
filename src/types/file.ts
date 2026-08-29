@@ -4,6 +4,12 @@ export type URL = {
   url: string;
 };
 
+export type UploadQuota = {
+  maxFileSizeBytes: number;
+  usedStorageBytes: number;
+  remainingStorageBytes: number;
+};
+
 export type FileItem = {
   id: string;
   user?: string;
@@ -35,6 +41,8 @@ export type FileUploadSession = {
   uploadUrl: string;
   method?: "PUT" | "POST";
   fields?: Record<string, string>;
+  maxFileSizeBytes?: number;
+  maxFileSizeLabel?: string;
   key?: string | null;
   fileKey?: string | null;
   s3Key?: string | null;
@@ -43,4 +51,37 @@ export type FileUploadSession = {
   shareToken?: string | null;
   url?: string | null;
   data?: FileItem | null;
+};
+
+export type BatchPresignedUploadItem = {
+  fileName: string;
+  contentType?: string | null;
+  size: number;
+  s3Key: string;
+  uploadUrl: string;
+  fileUrl?: string | null;
+  expiresIn?: number;
+};
+
+export type BatchPresignedUploadResponse = {
+  uploads: BatchPresignedUploadItem[];
+  maxFileSizeBytes?: number;
+  usedStorageBytes?: number;
+  remainingStorageBytes?: number;
+  batchSizeBytes?: number;
+};
+
+export type BatchUploadRecordInput = {
+  file: string;
+  s3Key: string;
+  description?: string;
+  date?: string;
+  status: UploadStatus;
+  originalName?: string;
+  mimeType?: string;
+  size: number;
+};
+
+export type BatchUploadCancelInput = {
+  s3Key: string;
 };

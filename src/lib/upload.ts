@@ -1,8 +1,13 @@
 import { apiFetch } from "@/lib/api";
 
-import type { FileUploadSession } from "@/types/file";
+import type {
+  BatchPresignedUploadResponse,
+  BatchUploadCancelInput,
+  BatchUploadRecordInput,
+  FileUploadSession,
+} from "@/types/file";
 
-export const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 * 1024;
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export function formatFileSize(bytes: number) {
@@ -15,6 +20,21 @@ export function formatFileSize(bytes: number) {
   );
 
   return `${(bytes / Math.pow(1024, index)).toFixed(2)} ${units[index]}`;
+}
+
+export function formatFileSizeFloor(bytes: number) {
+  if (!bytes) return "0 Bytes";
+
+  const units = ["Bytes", "KB", "MB", "GB", "TB"];
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+
+  const value = bytes / Math.pow(1024, index);
+  const floored = Math.floor(value * 100) / 100;
+
+  return `${floored.toFixed(2)} ${units[index]}`;
 }
 
 export function isOversizedFile(file: File) {
@@ -62,16 +82,85 @@ export async function requestPresignedUpload(input: {
   return response as { data?: FileUploadSession } | FileUploadSession;
 }
 
+export async function requestBatchPresignedUpload(input: {
+  files: Array<{
+    fileName: string;
+    mimeType: string;
+    size: number;
+  }>;
+}) {
+  const response = await apiFetch("/uploads/presign-batch", {
+    method: "POST",
+    body: JSON.stringify({
+      files: input.files.map((file) => ({
+        fileName: file.fileName,
+        contentType: file.mimeType,
+        size: file.size,
+      })),
+    }),
+    skipToast: true,
+  });
+
+  return response as
+    | { data?: BatchPresignedUploadResponse }
+    | BatchPresignedUploadResponse;
+}
+
+export async function createBatchUploadRecords(input: {
+  uploads: BatchUploadRecordInput[];
+}) {
+  const response = await apiFetch("/uploads/batch", {
+    method: "POST",
+    body: JSON.stringify(input),
+    skipToast: true,
+  });
+
+  return response as
+    | { data?: { uploads?: unknown[] } }
+    | { uploads?: unknown[] };
+}
+
+export async function deleteAllUploads() {
+  const response = await apiFetch("/uploads/all", {
+    method: "DELETE",
+    skipToast: true,
+  });
+
+  return response as { data?: { deletedCount?: number } } | { deletedCount?: number };
+}
+
+export async function removePendingBatchUpload(
+  input: BatchUploadCancelInput,
+) {
+  const response = await apiFetch("/uploads/batch/cancel", {
+    method: "POST",
+    body: JSON.stringify(input),
+    skipToast: true,
+  });
+
+  return response as { data?: { success?: boolean } } | { success?: boolean };
+}
+
 export async function uploadToPresignedUrl(
   uploadUrl: string,
   file: File,
   fields?: Record<string, string>,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const isFormUpload = Boolean(fields && Object.keys(fields).length > 0);
 
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const handleAbort = () => xhr.abort();
+    const cleanup = () => {
+      signal?.removeEventListener("abort", handleAbort);
+    };
+
+    if (signal?.aborted) {
+      reject(new Error("Upload was cancelled"));
+      return;
+    }
 
     xhr.open(isFormUpload ? "POST" : "PUT", uploadUrl);
 
@@ -88,6 +177,8 @@ export async function uploadToPresignedUrl(
     };
 
     xhr.onload = () => {
+      cleanup();
+
       if (xhr.status >= 200 && xhr.status < 300) {
         onProgress?.(100);
         resolve();
@@ -97,12 +188,16 @@ export async function uploadToPresignedUrl(
     };
 
     xhr.onerror = () => {
+      cleanup();
       reject(new Error("Unable to upload the selected file"));
     };
 
     xhr.onabort = () => {
+      cleanup();
       reject(new Error("Upload was cancelled"));
     };
+
+    signal?.addEventListener("abort", handleAbort, { once: true });
 
     const body = isFormUpload ? buildMultipartFormData(fields!, file) : file;
 
@@ -121,5 +216,3 @@ function buildMultipartFormData(fields: Record<string, string>, file: File) {
 
   return formData;
 }
-
-

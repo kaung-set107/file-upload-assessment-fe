@@ -1,20 +1,22 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import {
-  CloudUpload,
-  Eye,
-  FileText,
-  Filter,
-  LockKeyhole,
-  Search,
-  ShieldCheck,
-  Upload,
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FileText, Loader2, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { BatchUploadComposer } from "@/components/dashboard/BatchUploadComposer";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import type { UserProfile } from "@/types/user";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import {
   Card,
@@ -26,10 +28,21 @@ import {
 import { apiFetch } from "@/lib/api";
 import {
   formatFileSize,
+  formatFileSizeFloor,
+  createBatchUploadRecords,
+  deleteAllUploads,
+  requestBatchPresignedUpload,
   requestPresignedUpload,
+  removePendingBatchUpload,
   uploadToPresignedUrl,
 } from "@/lib/upload";
-import type { FileItem, FileUploadSession, UploadStatus } from "@/types/file";
+import type {
+  BatchPresignedUploadResponse,
+  FileItem,
+  FileUploadSession,
+  UploadQuota,
+  UploadStatus,
+} from "@/types/file";
 import { FileTable } from "@/components/files/FileTable";
 import { FileUploadDialog } from "@/components/files/FileUploadDialog";
 
@@ -39,50 +52,59 @@ type UploadPayload = {
   status: UploadStatus;
   onProgress?: (progress: number) => void;
 };
-type SummaryCardProps = {
-  label: string;
-  value: string | number;
-  helper: string;
-  accent: "emerald" | "violet" | "blue" | "amber";
-  icon: ReactNode;
-};
 
-const summaryAccentClasses = {
-  emerald: {
-    label: "text-emerald-700",
-    icon: "bg-emerald-500/10 text-emerald-700 ring-emerald-500/15",
-  },
-  violet: {
-    label: "text-violet-700",
-    icon: "bg-violet-500/10 text-violet-700 ring-violet-500/15",
-  },
-  blue: {
-    label: "text-blue-700",
-    icon: "bg-blue-500/10 text-blue-700 ring-blue-500/15",
-  },
-  amber: {
-    label: "text-amber-700",
-    icon: "bg-amber-500/10 text-amber-700 ring-amber-500/15",
-  },
-} as const;
 
-function SummaryCard({ label, value, helper, accent, icon }: SummaryCardProps) {
+function batchFileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function formatUsedPercent(value: number) {
+  return `${Math.min(value, 100).toFixed(2)}%`;
+}
+
+function StorageSummaryCard({ quota }: { quota: UploadQuota | null }) {
+  const usedBytes = quota?.usedStorageBytes ?? 0;
+  const remainingBytes = quota?.remainingStorageBytes ?? 0;
+  const maxBytes = quota?.maxFileSizeBytes ?? 0;
+  const usedPercent =
+    maxBytes > 0 ? Math.min((usedBytes / maxBytes) * 100, 100) : 0;
+
   return (
     <Card className="border-border/60 bg-background/85 shadow-[0_20px_50px_-35px_rgba(15,23,42,0.28)]">
-      <CardContent className="flex items-start justify-between gap-4 p-5 sm:p-6">
-        <div className="space-y-2">
-          <p
-            className={`text-sm font-medium ${summaryAccentClasses[accent].label}`}
-          >
-            {label}
-          </p>
-          <p className="text-3xl font-semibold tracking-tight">{value}</p>
-          <p className="text-sm text-muted-foreground">{helper}</p>
+      <CardContent className="flex flex-col gap-4 p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2">
+            <p className="text-sm font-medium text-teal-700">Storage</p>
+            <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              {quota ? formatFileSize(usedBytes) : "Loading..."}
+              <span className="ml-2 text-sm font-medium text-muted-foreground">
+                used
+              </span>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {quota
+                ? `${formatFileSizeFloor(remainingBytes)} left of ${formatFileSize(maxBytes)}`
+                : "Used storage and remaining quota"}
+            </p>
+          </div>
+
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-teal-500/10 text-teal-700 ring-1 ring-teal-500/15">
+            <FileText className="size-5" />
+          </div>
         </div>
-        <div
-          className={`flex size-12 items-center justify-center rounded-2xl ring-1 ${summaryAccentClasses[accent].icon}`}
-        >
-          {icon}
+
+        <div className="space-y-2">
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-[width] duration-500"
+              style={{ width: `${usedPercent}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{formatUsedPercent(usedPercent)} used</span>
+            <span>{quota ? `${formatFileSizeFloor(remainingBytes)} left` : ""}</span>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -253,14 +275,67 @@ function extractUploadSession(response: unknown): FileUploadSession | null {
   };
 }
 
+function extractBatchUploadSession(
+  response: unknown,
+): BatchPresignedUploadResponse | null {
+  const session = unwrapResponse<BatchPresignedUploadResponse & Record<string, unknown>>(
+    response,
+  );
+
+  if (!session || typeof session !== "object" || !Array.isArray(session.uploads)) {
+    return null;
+  }
+
+  return {
+    uploads: session.uploads.map((upload) => ({
+      fileName:
+        typeof upload.fileName === "string" ? upload.fileName : "untitled",
+      contentType:
+        typeof upload.contentType === "string"
+          ? upload.contentType
+          : undefined,
+      size:
+        typeof upload.size === "number" ? upload.size : Number(upload.size ?? 0),
+      s3Key: typeof upload.s3Key === "string" ? upload.s3Key : "",
+      uploadUrl:
+        typeof upload.uploadUrl === "string" ? upload.uploadUrl : "",
+      fileUrl:
+        typeof upload.fileUrl === "string" ? upload.fileUrl : undefined,
+      expiresIn:
+        typeof upload.expiresIn === "number" ? upload.expiresIn : undefined,
+    })),
+    maxFileSizeBytes:
+      typeof session.maxFileSizeBytes === "number"
+        ? session.maxFileSizeBytes
+        : undefined,
+    usedStorageBytes:
+      typeof session.usedStorageBytes === "number"
+        ? session.usedStorageBytes
+        : undefined,
+    remainingStorageBytes:
+      typeof session.remainingStorageBytes === "number"
+        ? session.remainingStorageBytes
+        : undefined,
+    batchSizeBytes:
+      typeof session.batchSizeBytes === "number"
+        ? session.batchSizeBytes
+        : undefined,
+  };
+}
+
 export default function UploadPage() {
   const [uploads, setUploads] = useState<FileItem[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [quota, setQuota] = useState<UploadQuota | null>(null);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
   const [editingUpload, setEditingUpload] = useState<FileItem | null>(null);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState("");
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const batchCancelledFilesRef = useRef(new Set<string>());
+  const batchAbortControllersRef = useRef(new Map<string, AbortController>());
+  const uploadToastIdRef = useRef<string | number | null>(null);
 
   const loadUploads = async () => {
     try {
@@ -279,6 +354,18 @@ export default function UploadPage() {
 
       setUserProfile(profileResponse);
       setUploads(normalizeUploadList(uploadsResponse));
+
+      try {
+        const quotaResponse = await apiFetch<UploadQuota>("/uploads/quota", {
+          method: "GET",
+          skipToast: true,
+        });
+
+        const normalizedQuota = unwrapResponse<UploadQuota>(quotaResponse);
+        setQuota(normalizedQuota ?? null);
+      } catch {
+        setQuota(null);
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to load uploads.",
@@ -291,6 +378,24 @@ export default function UploadPage() {
   useEffect(() => {
     void loadUploads();
   }, []);
+
+  useEffect(() => {
+    if (uploading && uploadToastIdRef.current === null) {
+      uploadToastIdRef.current = toast.loading("Processing ...");
+    }
+
+    if (!uploading && uploadToastIdRef.current !== null) {
+      toast.dismiss(uploadToastIdRef.current);
+      uploadToastIdRef.current = null;
+    }
+
+    return () => {
+      if (uploadToastIdRef.current !== null) {
+        toast.dismiss(uploadToastIdRef.current);
+        uploadToastIdRef.current = null;
+      }
+    };
+  }, [uploading]);
 
   const filteredUploads = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -314,11 +419,6 @@ export default function UploadPage() {
       return haystack.includes(query);
     });
   }, [search, uploads]);
-
-  const totalSize = useMemo(
-    () => uploads.reduce((sum, upload) => sum + (upload.size ?? 0), 0),
-    [uploads],
-  );
 
   const publicCount = useMemo(
     () => uploads.filter((upload) => upload.status === "public").length,
@@ -415,154 +515,263 @@ export default function UploadPage() {
       : fallbackRecord;
   };
 
-  const handleCreate = async ({
+  const handleBatchCreate = async ({
+    files,
+    status,
+    onFileProgress,
+  }: {
+    files: File[];
+    status: UploadStatus;
+    onFileProgress?: (file: File, progress: number) => void;
+  }) => {
+    if (!files.length) {
+      throw new Error("Choose one or more files to upload.");
+    }
+
+    batchCancelledFilesRef.current.clear();
+    batchAbortControllersRef.current.clear();
+
+    try {
+      setUploading(true);
+
+      const presignResponse = await requestBatchPresignedUpload({
+        files: files.map((file) => ({
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+        })),
+      });
+
+      const session = extractBatchUploadSession(presignResponse);
+
+      if (!session?.uploads?.length) {
+        throw new Error("Upload URLs were not returned by the server.");
+      }
+
+      if (session.uploads.length !== files.length) {
+        throw new Error("The server did not return upload URLs for every file.");
+      }
+
+      const completedUploads: Array<{
+        key: string;
+        s3Key: string;
+        record: {
+          file: string;
+          s3Key: string;
+          status: UploadStatus;
+          originalName: string;
+          mimeType: string;
+          size: number;
+          date: string;
+        };
+      }> = [];
+
+      for (const [index, file] of files.entries()) {
+        const key = batchFileKey(file);
+
+        if (batchCancelledFilesRef.current.has(key)) {
+          continue;
+        }
+
+        const fileSession = session.uploads[index];
+
+        if (!fileSession?.uploadUrl) {
+          throw new Error(`Upload URL was not returned for ${file.name}.`);
+        }
+
+        const controller = new AbortController();
+        batchAbortControllersRef.current.set(key, controller);
+
+        try {
+          onFileProgress?.(file, 0);
+
+          await uploadToPresignedUrl(
+            fileSession.uploadUrl,
+            file,
+            undefined,
+            (progress) => {
+              if (!batchCancelledFilesRef.current.has(key)) {
+                onFileProgress?.(file, progress);
+              }
+            },
+            controller.signal,
+          );
+
+          onFileProgress?.(file, 100);
+        } catch (error) {
+          if (
+            controller.signal.aborted ||
+            batchCancelledFilesRef.current.has(key) ||
+            (error instanceof Error && error.message === "Upload was cancelled")
+          ) {
+            continue;
+          }
+
+          throw error;
+        } finally {
+          batchAbortControllersRef.current.delete(key);
+        }
+
+        completedUploads.push({
+          key,
+          s3Key: fileSession.s3Key,
+          record: {
+            file: file.name,
+            s3Key: fileSession.s3Key,
+            status,
+            originalName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+            date: new Date().toISOString(),
+          },
+        });
+      }
+
+      const uploadsToCreate = completedUploads
+        .filter(({ key }) => !batchCancelledFilesRef.current.has(key))
+        .map(({ record }) => record);
+
+      const cancelledCompletedUploads = completedUploads.filter(({ key }) =>
+        batchCancelledFilesRef.current.has(key),
+      );
+
+      await Promise.all(
+        cancelledCompletedUploads.map(async ({ s3Key }) => {
+          try {
+            await removePendingBatchUpload({ s3Key });
+          } catch (cleanupError) {
+            console.error("Failed to remove cancelled batch upload:", cleanupError);
+          }
+        }),
+      );
+
+      if (uploadsToCreate.length > 0) {
+        await createBatchUploadRecords({
+          uploads: uploadsToCreate,
+        });
+
+        const cancelledCount = files.length - uploadsToCreate.length;
+
+        toast.success(
+          cancelledCount > 0
+            ? `Uploaded ${uploadsToCreate.length} file(s) and cancelled ${cancelledCount}.`
+            : "Batch uploads created successfully",
+        );
+
+        await loadUploads();
+      } else {
+        toast.info("Batch upload cancelled.");
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to upload files.",
+      );
+      throw error;
+    } finally {
+      batchCancelledFilesRef.current.clear();
+      batchAbortControllersRef.current.clear();
+      setUploading(false);
+    }
+  };
+
+  const handleBatchRemoveFile = (file: File) => {
+    const key = batchFileKey(file);
+
+    batchCancelledFilesRef.current.add(key);
+    batchAbortControllersRef.current.get(key)?.abort();
+  };
+
+  const handleUpdate = async ({
     file,
     description,
     status,
     onProgress,
   }: UploadPayload) => {
-    if (!file) {
-      throw new Error("Choose a file to upload.");
-    }
+    if (!editingUpload) return;
 
     try {
       setUploading(true);
 
-      const sessionResponse = await requestPresignedUpload({
-        originalName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        description,
-        status,
-      });
+      let updatedUpload = editingUpload;
 
-      const session = extractUploadSession(sessionResponse);
-
-      if (!session?.uploadUrl) {
-        throw new Error("Upload URL was not returned by the server.");
-      }
-
-      await uploadToPresignedUrl(
-        session.uploadUrl,
-        file,
-        session.fields,
-        onProgress,
-      );
-
-      const savedUpload =
-        session.data ??
-        (await persistUploadRecord({
-          session,
-          file,
+      if (file) {
+        const sessionResponse = await requestPresignedUpload({
+          originalName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
           description,
           status,
-        }));
+          fileId: editingUpload.id,
+        });
 
-      setUploads((current) => [savedUpload, ...current]);
-      setCreateOpen(false);
-      toast.success("Upload created successfully");
+        const session = extractUploadSession(sessionResponse);
+
+        if (!session?.uploadUrl) {
+          throw new Error("Upload URL was not returned by the server.");
+        }
+
+        await uploadToPresignedUrl(
+          session.uploadUrl,
+          file,
+          session.fields,
+          onProgress,
+        );
+
+        updatedUpload =
+          session.data ??
+          (await persistUploadRecord({
+            session,
+            file,
+            description,
+            status,
+            existingUpload: editingUpload,
+          }));
+      } else {
+        const response = await apiFetch(`/uploads/${editingUpload.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            description,
+            status,
+            file: editingUpload.file,
+            shareLink: editingUpload.shareLink,
+            shareToken: editingUpload.shareToken,
+            originalName: editingUpload.originalName,
+            mimeType: editingUpload.mimeType,
+            size: editingUpload.size,
+            s3Key: editingUpload.s3Key,
+            date: editingUpload.date,
+          }),
+          skipToast: true,
+        });
+
+        updatedUpload = normalizeUploadRecord(
+          unwrapResponse<Partial<FileItem> & Record<string, unknown>>(
+            response,
+          ) ?? {
+            ...editingUpload,
+            description,
+            status,
+          },
+        );
+      }
+
+      setUploads((current) =>
+        current.map((upload) =>
+          upload.id === editingUpload.id ? updatedUpload : upload,
+        ),
+      );
+      setEditingUpload(null);
+      toast.success("Upload updated successfully");
       await loadUploads();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to upload file.",
+        error instanceof Error ? error.message : "Unable to update upload.",
       );
       throw error;
     } finally {
       setUploading(false);
     }
   };
-
-const handleUpdate = async ({
-  file,
-  description,
-  status,
-  onProgress,
-}: UploadPayload) => {
-  if (!editingUpload) return;
-
-  try {
-    setUploading(true);
-
-    let updatedUpload = editingUpload;
-
-    if (file) {
-      const sessionResponse = await requestPresignedUpload({
-        originalName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        description,
-        status,
-        fileId: editingUpload.id,
-      });
-
-      const session = extractUploadSession(sessionResponse);
-
-      if (!session?.uploadUrl) {
-        throw new Error("Upload URL was not returned by the server.");
-      }
-
-  await uploadToPresignedUrl(
-    session.uploadUrl,
-    file,
-    session.fields,
-    onProgress,
-  );
-
-      updatedUpload =
-        session.data ??
-        (await persistUploadRecord({
-          session,
-          file,
-          description,
-          status,
-          existingUpload: editingUpload,
-        }));
-    } else {
-      const response = await apiFetch(`/uploads/${editingUpload.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          description,
-          status,
-          file: editingUpload.file,
-          shareLink: editingUpload.shareLink,
-          shareToken: editingUpload.shareToken,
-          originalName: editingUpload.originalName,
-          mimeType: editingUpload.mimeType,
-          size: editingUpload.size,
-          s3Key: editingUpload.s3Key,
-          date: editingUpload.date,
-        }),
-        skipToast: true,
-      });
-
-      updatedUpload = normalizeUploadRecord(
-        unwrapResponse<Partial<FileItem> & Record<string, unknown>>(
-          response,
-        ) ?? {
-          ...editingUpload,
-          description,
-          status,
-        },
-      );
-    }
-
-    setUploads((current) =>
-      current.map((upload) =>
-        upload.id === editingUpload.id ? updatedUpload : upload,
-      ),
-    );
-    setEditingUpload(null);
-    toast.success("Upload updated successfully");
-    await loadUploads();
-  } catch (error) {
-    toast.error(
-      error instanceof Error ? error.message : "Unable to update upload.",
-    );
-    throw error;
-  } finally {
-    setUploading(false);
-  }
-};
 
   const handleDelete = async (id: string) => {
     try {
@@ -578,6 +787,25 @@ const handleUpdate = async ({
         error instanceof Error ? error.message : "Unable to delete upload.",
       );
       throw error;
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    try {
+      setDeletingAll(true);
+
+      await deleteAllUploads();
+
+      toast.success("All uploads deleted");
+      setDeleteAllOpen(false);
+      await loadUploads();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to delete uploads.",
+      );
+      throw error;
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -610,7 +838,14 @@ const handleUpdate = async ({
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(56,189,248,0.18),_transparent_24%),linear-gradient(180deg,_rgba(248,250,252,0.92),_rgba(241,245,249,0.72))] text-foreground">
       <div className="mx-auto flex min-h-screen w-full  flex-col gap-6 px-4 py-4 md:px-6 lg:flex-row lg:px-8">
-        <DashboardSidebar userProfile={userProfile} />
+        <DashboardSidebar
+          userProfile={userProfile}
+          stats={{
+            totalFiles: uploads.length,
+            publicFiles: publicCount,
+            privateFiles: privateCount,
+          }}
+        />
         <main className="min-w-0 w-full space-y-6">
           <div className="flex flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/60 p-4 shadow-[0_30px_80px_-40px_rgba(15,23,42,0.25)] backdrop-blur-xl sm:p-6">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -621,7 +856,7 @@ const handleUpdate = async ({
                 </div>
                 <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
                   Welcome back, {userProfile?.user?.name ?? "friend"}{" "}
-                  <span aria-hidden="true">👋</span>
+                  <span aria-hidden="true" className="animate-bounce">👋</span>
                 </h1>
                 <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
                   Manage and organize your files in one place.
@@ -640,37 +875,14 @@ const handleUpdate = async ({
                 </div>
               </div>
             </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <SummaryCard
-                label="Total Files"
-                value={uploads.length}
-                helper="All your uploaded files"
-                accent="emerald"
-                icon={<FileText className="size-5" />}
-              />
-              <SummaryCard
-                label="Total Size"
-                value={formatFileSize(totalSize)}
-                helper="Used storage space"
-                accent="violet"
-                icon={<Upload className="size-5" />}
-              />
-              <SummaryCard
-                label="Public Files"
-                value={publicCount}
-                helper="Visible to everyone"
-                accent="blue"
-                icon={<Eye className="size-5" />}
-              />
-              <SummaryCard
-                label="Private Files"
-                value={privateCount}
-                helper="Only you can access"
-                accent="amber"
-                icon={<LockKeyhole className="size-5" />}
-              />
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]">
+              <StorageSummaryCard quota={quota} />
             </div>
+            <BatchUploadComposer
+              quota={quota}
+              onRemoveFile={handleBatchRemoveFile}
+              onUpload={handleBatchCreate}
+            />
           </div>
 
           <Card className="border-border/60 bg-background/85 shadow-[0_25px_80px_-35px_rgba(15,23,42,0.35)] backdrop-blur">
@@ -687,11 +899,17 @@ const handleUpdate = async ({
 
                 <Button
                   type="button"
-                  onClick={() => setCreateOpen(true)}
-                  className="h-12 rounded-2xl bg-slate-950 px-5 text-white shadow-lg shadow-slate-950/20 hover:bg-slate-800"
+                  variant="destructive"
+                  className="rounded-xl"
+                  onClick={() => setDeleteAllOpen(true)}
+                  disabled={!uploads.length || loading || uploading || deletingAll}
                 >
-                  <CloudUpload className="mr-2 size-4" />
-                  Upload file
+                  {deletingAll ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 size-4" />
+                  )}
+                  Delete all files
                 </Button>
               </div>
             </CardHeader>
@@ -707,15 +925,31 @@ const handleUpdate = async ({
               />
             </CardContent>
           </Card>
+
+          <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete all uploads?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove every file in your account from
+                  both the database and S3. This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deletingAll}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDeleteAll}
+                  disabled={deletingAll || uploading}
+                >
+                  {deletingAll ? "Deleting..." : "Delete all"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </main>
       </div>
-
-      <FileUploadDialog
-        mode="create"
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSubmit={handleCreate}
-      />
 
       <FileUploadDialog
         mode="update"
@@ -729,13 +963,6 @@ const handleUpdate = async ({
         onSubmit={handleUpdate}
       />
 
-      {uploading ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-4 flex justify-center px-4">
-          <div className="rounded-full border border-border/70 bg-background/90 px-4 py-2 text-sm text-muted-foreground shadow-lg backdrop-blur">
-            Processing upload changes...
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

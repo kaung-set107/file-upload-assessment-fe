@@ -175,13 +175,17 @@ export function FileTable({
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   {getStatusBadge(file.status)}
-                  <Badge variant="secondary">{getFileType(file.mimeType)}</Badge>
+                  <Badge variant="secondary">
+                    {getFileType(file.mimeType)}
+                  </Badge>
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-muted-foreground">Size</p>
-                    <p className="font-medium">{formatFileSize(file.size ?? 0)}</p>
+                    <p className="font-medium">
+                      {formatFileSize(file.size ?? 0)}
+                    </p>
                   </div>
 
                   <div>
@@ -316,6 +320,7 @@ export function FileTable({
                       <Button
                         size="icon-sm"
                         variant="ghost"
+                        className="cursor-pointer"
                         disabled={!resolveDownloadTarget(file)}
                         onClick={() => {
                           if (onDownload) {
@@ -330,6 +335,7 @@ export function FileTable({
 
                       <Button
                         size="icon-sm"
+                        className="cursor-pointer"
                         variant="ghost"
                         disabled={!resolveDownloadTarget(file)}
                         onClick={() => {
@@ -345,6 +351,7 @@ export function FileTable({
 
                       <Button
                         size="icon-sm"
+                        className="cursor-pointer"
                         variant="ghost"
                         onClick={() => onEdit(file)}
                       >
@@ -355,6 +362,7 @@ export function FileTable({
                       <Button
                         size="icon-sm"
                         variant="ghost"
+                        className="cursor-pointer"
                         onClick={() => setDeleteId(file.id)}
                       >
                         <Trash2 className="size-4 text-destructive" />

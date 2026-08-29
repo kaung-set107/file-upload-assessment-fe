@@ -1,9 +1,5 @@
-import LoginPage from "./(auth)/login/page";
+import { LandingPage } from "@/components/landing/LandingPage";
 
 export default function Home() {
-  return (
-    <div className="">
-      <LoginPage />
-    </div>
-  );
+  return <LandingPage />;
 }

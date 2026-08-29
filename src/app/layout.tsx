@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Files Storage System",
-  description: "Dashboard for managing secure file uploads and storage.",
+  title: "FileStorage",
+  description: "Secure file storage, sharing, and batch uploads.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
